@@ -57,7 +57,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Drip-0.6.0-encrypted-${{ matrix.arch }}
+          name: Drip-0.6.2-encrypted-${{ matrix.arch }}
           path: sealed-output/*.dripenc
           compression-level: 0
           retention-days: 3
