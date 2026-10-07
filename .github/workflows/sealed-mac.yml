@@ -1,0 +1,63 @@
+name: Encrypted Drip Mac build
+on:
+  push:
+    branches: [codex/drip-encrypted-build-0.6.0]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    env:
+      DRIP_PRIVATE_BUILD_KEY: ${{ secrets.DRIP_PRIVATE_BUILD_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Open encrypted source
+        run: |
+          mkdir -p private-logs
+          node sealed-build.cjs open
+          unzip -q source.zip -d source
+      - name: Install dependencies
+        working-directory: source
+        run: |
+          npm ci > ../private-logs/dependencies.txt 2>&1
+          node node_modules/electron/install.js >> ../private-logs/dependencies.txt 2>&1
+      - name: Build Mac installers
+        working-directory: source
+        run: node ../sealed-build.cjs build ${{ matrix.arch }} > ../private-logs/build.txt 2>&1
+      - name: Verify installed application
+        working-directory: source
+        env:
+          REPERE_SMOKE_DIR: qa-release
+        run: |
+          export REPERE_SMOKE_EXECUTABLE="$PWD/dist/desktop/${{ matrix.arch == 'arm64' && 'mac-arm64' || 'mac' }}/Drip.app/Contents/MacOS/Drip"
+          node scripts/desktop-diagnostics-smoke.mjs > ../private-logs/diagnostics.txt 2>&1
+          node scripts/desktop-senat-smoke.mjs > ../private-logs/senat.txt 2>&1
+          node scripts/desktop-mac-install-smoke.mjs > ../private-logs/install.txt 2>&1
+          node scripts/macos-presentation-probe.mjs > ../private-logs/presentation.txt 2>&1
+      - name: Assemble distribution
+        if: always()
+        working-directory: source
+        run: npm run bundle:distribution > ../private-logs/distribution.txt 2>&1
+      - name: Encrypt installers and reports
+        if: always()
+        run: node sealed-build.cjs seal ${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Drip-0.6.0-encrypted-${{ matrix.arch }}
+          path: sealed-output/*.dripenc
+          compression-level: 0
+          retention-days: 3
